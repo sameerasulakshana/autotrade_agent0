@@ -5,6 +5,13 @@ import xml.etree.ElementTree as ET
 from .memory import AgentMemory
 from .execution import MT5Executor
 
+# Try to import RAG memory, graceful fallback if not installed
+try:
+    from .rag_memory import TradeLearner
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+
 class AgentBrain:
     def __init__(self, memory: AgentMemory, executor: MT5Executor):
         self.memory = memory
@@ -12,6 +19,9 @@ class AgentBrain:
         self.base_url = "http://localhost:4141/v1" 
         self.model = "gpt-5-mini"
         self.api_key = "none"
+        
+        # Initialize Learner
+        self.learner = TradeLearner() if RAG_AVAILABLE else None
         
         # Risk Settings
         self.risk_per_trade_pct = 0.01
@@ -86,6 +96,7 @@ class AgentBrain:
         for trade in active_trades_db:
             ticket = trade['ticket']
             if ticket not in real_positions:
+                self.memory.log_thought("SUCCESS", f"Trade {ticket} ({trade['symbol']}) is no longer active. Likely hit SL/TP or was closed manually.")
                 self.memory.update_trade_outcome(ticket, time.strftime('%Y-%m-%dT%H:%M:%S'), "CLOSED", 0.0)
             else:
                 self.evaluate_active_trade(trade, real_positions[ticket])
@@ -148,6 +159,19 @@ class AgentBrain:
                 if self.executor.close_position(ticket):
                     self.memory.update_trade_outcome(ticket, time.strftime('%Y-%m-%dT%H:%M:%S'), "AI_CLOSE", current_pos.profit)
                     self.memory.log_thought("SUCCESS", f"Closed {symbol} via AI decision.")
+                    
+                    # 2. RAG Learning (Memorize the Outcome)
+                    if self.learner:
+                        try:
+                            self.learner.memorize_trade(
+                                symbol=symbol,
+                                rationale=trade_db['rationale'],
+                                outcome="WIN" if current_pos.profit > 0 else "LOSS",
+                                profit=current_pos.profit,
+                                technical_summary=f"Closed at {current_pos.price_current}"
+                            )
+                        except Exception as e:
+                            self.memory.log_thought("ERROR", f"Learning failed: {e}")
             
             elif action == "MODIFY":
                 new_sl = decision.get('new_sl', current_pos.sl)
@@ -160,10 +184,14 @@ class AgentBrain:
 
     def scan_market(self):
         active_positions = self.executor.get_positions() or []
-        if len(active_positions) >= self.max_trades: return
+        if len(active_positions) >= self.max_trades: 
+            self.memory.log_thought("ANALYSIS", "Scan skipped: Max trade capacity reached.")
+            return
 
         symbol = "BTCUSD"
-        if any(p.symbol == symbol for p in active_positions): return
+        if any(p.symbol == symbol for p in active_positions): 
+            self.memory.log_thought("ANALYSIS", f"Scan skipped: Already have an active {symbol} position.")
+            return
 
         last_view = self.memory.get_last_analysis(symbol)
         if last_view:
@@ -175,8 +203,25 @@ class AgentBrain:
         mtf_data = self.executor.get_mtf_data(symbol)
         if not mtf_data: return
 
+        # 1. RAG Recall (Learning from History)
+        memory_context = ""
+        if self.learner:
+            query = f"{symbol} price action structure"
+            try:
+                memory_context = self.learner.recall_similar_situations(query)
+                self.memory.log_thought("ANALYSIS", "Consulting past experiences...")
+            except Exception as e:
+                self.memory.log_thought("ERROR", f"Memory recall failed: {e}")
+
         system_prompt = "You are Agent Zero. Analyze BTCUSD. Respond ONLY in JSON."
-        user_prompt = f"Data: {json.dumps(mtf_data)}. Risk: {self.current_lot_size} lots. JSON: {{ 'signal': 'BUY'|'SELL'|'WAIT', 'rationale': '...', 'entry': f, 'sl': f, 'tp': f, 'search_needed': bool }}"
+        user_prompt = f"""
+        Data: {json.dumps(mtf_data)}. Risk: {self.current_lot_size} lots. 
+        
+        PAST MEMORY:
+        {memory_context}
+        
+        Should I trade? JSON: {{ 'signal': 'BUY'|'SELL'|'WAIT', 'rationale': '...', 'entry': f, 'sl': f, 'tp': f, 'search_needed': bool }}
+        """
 
         raw_ai_decision = self.think(system_prompt, user_prompt)
         

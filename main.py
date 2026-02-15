@@ -61,6 +61,11 @@ def main():
                 # Update baseline profit after scan to avoid immediate double-trigger
                 last_known_profit = current_total_profit 
 
+            # Heartbeat indicator
+            if int(current_time) % 30 == 0: # Every 30s
+                status = "Trading" if positions else "Idle (Watching)"
+                print(f"[HEARTBEAT] Status: {status} | Profit: {current_total_profit:.2f} | Next Scan: {int((analysis_interval - (current_time - last_analysis_time))/60)}m", end="\r")
+
             # Interference Mechanism (Non-blocking check)
             import select
             i, o, e = select.select([sys.stdin], [], [], 0.5) 
