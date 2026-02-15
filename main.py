@@ -38,10 +38,10 @@ def main():
             positions = executor.get_positions()
             current_total_profit = sum([p.profit for p in positions]) if positions else 0.0
             
-            # Check for fluctuation trigger (+- 0.20)
+            # Check for fluctuation trigger (+- 1.00)
             fluctuation = abs(current_total_profit - last_known_profit)
             
-            if fluctuation >= 0.20:
+            if fluctuation >= 1.00:
                 print(f"\n--- [THOUGHT CYCLE #{cycle_count}] Fluctuation: {fluctuation:+.2f} ---")
                 print(f"[SYSTEM] Total Profit: {current_total_profit:.2f} (Triggered Analysis)")
                 
