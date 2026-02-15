@@ -26,15 +26,19 @@ def main():
     print("Brain Module: Online")
     
     print("\n" + "="*60)
-    print("          AGENT ZERO: DYNAMIC PROFIT MONITORING          ")
+    print("          AGENT ZERO: DUAL-MODE MONITORING          ")
+    print("          (1h Analysis | +/- 1.00 Profit Review)    ")
     print("="*60 + "\n")
     
     last_known_profit = -999999.0
-    cycle_count = 1
+    last_analysis_time = 0
+    analysis_interval = 3600 # 1 Hour in seconds
     
     try:
         while True:
-            # High-frequency check of profit
+            current_time = time.time()
+            
+            # --- HIGH FREQUENCY TRADE MONITORING ---
             positions = executor.get_positions()
             current_total_profit = sum([p.profit for p in positions]) if positions else 0.0
             
@@ -42,28 +46,28 @@ def main():
             fluctuation = abs(current_total_profit - last_known_profit)
             
             if fluctuation >= 1.00:
-                print(f"\n--- [THOUGHT CYCLE #{cycle_count}] Fluctuation: {fluctuation:+.2f} ---")
-                print(f"[SYSTEM] Total Profit: {current_total_profit:.2f} (Triggered Analysis)")
-                
-                # 1. Review Portfolio (Consciousness)
+                print(f"\n--- [PORTFOLIO REVIEW] Fluctuation: {current_total_profit - last_known_profit:+.2f} ---")
+                # Review existing trades ONLY
                 brain.review_portfolio()
-                
-                # 2. Scan Market (Opportunity)
-                brain.scan_market() 
-                
                 last_known_profit = current_total_profit
-                cycle_count += 1
-                
-                # Small gap after a full cycle to prevent runaway loops if profit is jittery
-                time.sleep(2)
-            
+                time.sleep(1) # Brief pause
+
+            # --- SCHEDULED MARKET ANALYSIS (1h) ---
+            if (current_time - last_analysis_time) >= analysis_interval:
+                print(f"\n--- [SCHEDULED ANALYSIS] Time: {time.strftime('%H:%M:%S')} ---")
+                # Scan for NEW trades
+                brain.scan_market()
+                last_analysis_time = current_time
+                # Update baseline profit after scan to avoid immediate double-trigger
+                last_known_profit = current_total_profit 
+
             # Interference Mechanism (Non-blocking check)
             import select
-            i, o, e = select.select([sys.stdin], [], [], 0.5) # Check every 0.5s
+            i, o, e = select.select([sys.stdin], [], [], 0.5) 
             if i:
                 line = sys.stdin.readline().strip()
                 print("\n" + "!"*20 + " MANUAL INTERVENTION " + "!"*20)
-                cmd = input("Command? (close_all / stop / resume): ").lower()
+                cmd = input("Command? (close_all / stop / analyze / resume): ").lower()
                 if cmd == "close_all":
                     if positions:
                         for p in positions:
@@ -72,12 +76,16 @@ def main():
                 elif cmd == "stop":
                     print("[SYSTEM] Stopping agent.")
                     break
+                elif cmd == "analyze":
+                    print("[SYSTEM] Forcing analysis...")
+                    brain.scan_market()
+                    last_analysis_time = time.time()
                 elif cmd == "resume":
                     print("[SYSTEM] Resuming...")
                 else:
                     print("[SYSTEM] Unknown command.")
             
-            # Tiny sleep to reduce CPU load while monitoring
+            # Tiny sleep to reduce CPU load
             time.sleep(0.5)
             
     except KeyboardInterrupt:
