@@ -41,6 +41,17 @@ class MT5Executor:
         result = self.mt5.order_send(request)
         return result.retcode == self.mt5.TRADE_RETCODE_DONE
 
+    def modify_position(self, ticket, sl, tp):
+        """Update Stop Loss and Take Profit for an open position."""
+        request = {
+            "action": self.mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "sl": float(sl),
+            "tp": float(tp)
+        }
+        result = self.mt5.order_send(request)
+        return result.retcode == self.mt5.TRADE_RETCODE_DONE
+
     def open_trade(self, symbol, order_type, volume, sl, tp, comment):
         price = self.mt5.symbol_info_tick(symbol).ask if order_type == "BUY" else self.mt5.symbol_info_tick(symbol).bid
         type_op = self.mt5.ORDER_TYPE_BUY if order_type == "BUY" else self.mt5.ORDER_TYPE_SELL
